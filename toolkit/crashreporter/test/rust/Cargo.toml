@@ -1,0 +1,16 @@
+[package]
+edition = "2021"
+name = "rust_testcrasher"
+version = "0.1.0"
+authors = ["188766"]
+license = "MPL-2.0"
+description = "testcrasher in rust"
+
+[dependencies]
+minidump = "0.24.0"
+mozilla-central-workspace-hack = { version = "0.1", features = ["rust_testcrasher"], optional = true }
+
+[lib]
+name = "rust_testcrasher"
+crate-type = ["staticlib"]
+path = "lib.rs"

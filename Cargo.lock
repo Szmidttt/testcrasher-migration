@@ -4488,6 +4488,7 @@ dependencies = [
  "libc",
  "log",
  "memchr",
+ "minidump",
  "mio",
  "nom",
  "num-integer",
@@ -5920,6 +5921,14 @@ dependencies = [
  "crash-context",
  "libc",
  "minidump-writer",
+]
+
+[[package]]
+name = "rust_testcrasher"
+version = "0.1.0"
+dependencies = [
+ "minidump",
+ "mozilla-central-workspace-hack",
 ]
 
 [[package]]

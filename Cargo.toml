@@ -25,6 +25,7 @@ members = [
   "toolkit/crashreporter/mozwer-rust",
   "toolkit/library/gtest/rust",
   "toolkit/library/rust/",
+  "toolkit/crashreporter/test/rust",
 ]
 
 # Excluded crates may be built as dependencies, but won't be considered members

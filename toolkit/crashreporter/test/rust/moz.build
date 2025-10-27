@@ -1,0 +1,3 @@
+RustLibrary(
+    "rust_testcrasher"
+)
