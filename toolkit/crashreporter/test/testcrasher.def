@@ -1,0 +1,10 @@
+LIBRARY testcrasher
+EXPORTS
+    Crash
+    DumpCheckMemory
+    DumpHasInstructionPointerMemory
+    DumpHasStream
+    EnablePHC
+    GetWin64CFITestFnAddrOffset
+    SaveAppMemory
+    TryOverrideExceptionHandler

@@ -13,9 +13,18 @@ TEST_DIRS += [
     "gtest",
 ]
 
+OS_LIBS += [
+    "bcrypt",
+    "synchronization",
+]
+
 DIRS+= ["rust"]
 
-USE_LIBS += ["rust_testcrasher"]
+USE_LIBS += [
+    "rust_testcrasher",
+]
+
+USE_STATIC_MSVCRT = True
 
 BROWSER_CHROME_MANIFESTS += ["browser/browser.toml"]
 
@@ -73,4 +82,6 @@ TEST_HARNESS_FILES.xpcshell.toolkit.crashreporter.test.unit_ipc += [
 include("/toolkit/crashreporter/crashreporter.mozbuild")
 
 NO_PGO = True
+
+DEFFILE = "testcrasher.def"
 

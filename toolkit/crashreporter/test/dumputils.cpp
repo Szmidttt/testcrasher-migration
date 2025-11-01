@@ -6,16 +6,16 @@
 using namespace google_breakpad;
 
 // Return true if the specified minidump contains a stream of |stream_type|.
-extern "C" NS_EXPORT bool DumpHasStream(const char* dump_file,
-                                        uint32_t stream_type) {
-  Minidump dump(dump_file);
-  if (!dump.Read()) return false;
+// extern "C" NS_EXPORT bool DumpHasStream(const char* dump_file,
+//                                         uint32_t stream_type) {
+//   Minidump dump(dump_file);
+//   if (!dump.Read()) return false;
 
-  uint32_t length;
-  if (!dump.SeekToStreamType(stream_type, &length) || length == 0) return false;
+//   uint32_t length;
+//   if (!dump.SeekToStreamType(stream_type, &length) || length == 0) return false;
 
-  return true;
-}
+//   return true;
+// }
 
 // Return true if the specified minidump contains a memory region
 // that contains the instruction pointer from the exception record.
