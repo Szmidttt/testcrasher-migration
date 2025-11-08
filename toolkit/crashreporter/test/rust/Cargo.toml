@@ -8,6 +8,7 @@ description = "testcrasher in rust"
 
 [dependencies]
 minidump = "0.24.0"
+libc = "0.2"
 mozilla-central-workspace-hack = { version = "0.1", features = ["rust_testcrasher"], optional = true }
 
 [lib]
