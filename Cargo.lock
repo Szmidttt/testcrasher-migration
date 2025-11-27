@@ -5927,6 +5927,7 @@ dependencies = [
 name = "rust_testcrasher"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "minidump",
  "mozilla-central-workspace-hack",
 ]

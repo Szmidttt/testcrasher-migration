@@ -14,4 +14,4 @@ mozilla-central-workspace-hack = { version = "0.1", features = ["rust_testcrashe
 [lib]
 name = "rust_testcrasher"
 crate-type = ["staticlib"]
-path = "lib.rs"
+path = "src/lib.rs"
