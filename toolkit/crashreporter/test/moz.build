@@ -28,7 +28,7 @@ USE_STATIC_MSVCRT = True
 
 BROWSER_CHROME_MANIFESTS += ["browser/browser.toml"]
 
-UNIFIED_SOURCES += [
+SOURCES += [
     "nsTestCrasher.cpp",
 ]
 

@@ -1,52 +1,147 @@
+use std::fs;
+use std::io::Write;
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use sadness_generator::SadnessFlavor;
+
+// Keep these in sync with CrashTestUtils.sys.mjs!
+const CRASH_INVALID_POINTER_DEREF: i16 = 0;
+const CRASH_PURE_VIRTUAL_CALL: i16 = 1;
+const CRASH_OOM: i16 = 3;
+const CRASH_MOZ_CRASH: i16 = 4;
+const CRASH_ABORT: i16 = 5;
+const CRASH_UNCAUGHT_EXCEPTION: i16 = 6;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_NO_MANS_LAND: i16 = 7;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_LAUNCHER: i16 = 8;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_UNKNOWN_OPCODE: i16 = 9;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_PUSH_NONVOL: i16 = 10;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_ALLOC_SMALL: i16 = 11;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_ALLOC_LARGE: i16 = 12;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_SAVE_NONVOL: i16 = 15;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_SAVE_NONVOL_FAR: i16 = 16;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_SAVE_XMM128: i16 = 17;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_SAVE_XMM128_FAR: i16 = 18;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_EPILOG: i16 = 19;
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+const CRASH_X64CFI_EOF: i16 = 20;
+const CRASH_PHC_USE_AFTER_FREE: i16 = 21;
+const CRASH_PHC_DOUBLE_FREE: i16 = 22;
+const CRASH_PHC_BOUNDS_VIOLATION: i16 = 23;
+#[cfg(target_os = "windows")]
+const CRASH_HEAP_CORRUPTION: i16 = 24;
+#[cfg(target_os = "macos")]
+const CRASH_EXC_GUARD: i16 = 25;
+#[cfg(not(target_os = "windows"))]
+const CRASH_STACK_OVERFLOW: i16 = 26;
+
+
+// // Helper functions for stack overflow (non-Windows)
+// #[cfg(not(target_os = "windows"))]
+// fn recurse(random: i64) -> i64 {
+//     let mut buff: [u8; 256] = [0; 256];
+//     let mut result = random;
+    
+//     let gibberish = b"This is gibberish";
+//     let len = gibberish.len().min(buff.len());
+//     buff[..len].copy_from_slice(&gibberish[..len]);
+    
+//     for c in &buff {
+//         result = result.wrapping_add(*c as i64);
+//     }
+    
+//     if result == 0 {
+//         return result;
+//     }
+    
+//     recurse(result).wrapping_add(1)
+// }
+
+// #[no_mangle]
+// pub extern "C" fn Crash(how: i16) {
+//     match how {
+//         CRASH_INVALID_POINTER_DEREF => {
+//             unsafe { SadnessFlavor::Segfault.make_sad(); }
+//         },
+//         #[cfg(not(target_os = "windows"))]
+//         CRASH_STACK_OVERFLOW => {
+//             unsafe { SadnessFlavor::StackOverflow.make_sad(); }
+//         },
+//         CRASH_ABORT => {
+//             unsafe { SadnessFlavor::Abort.make_sad(); }
+//         },
+//         _ => {}
+//     }
+// }
+
+#[no_mangle]
+pub extern "C" fn SaveAppMemory() -> u64 {
+    let mut test_data = Box::new([0u8; 32]);
+    for i in 0..32 {
+        test_data[i] = i as u8;
+    }
+    let leaked_ref: &'static mut [u8; 32] = Box::leak(test_data);
+
+    let addr = leaked_ref.as_ptr() as u64;
+
+    if let Ok(mut file) = fs::File::create("crash-addr") {
+        let _ = writeln!(file, "0x{:x}", addr);
+    }
+
+    addr
+}
+
+
+//TODO po migracji funkcji crash usunąc komentarz let fn_addr = ...
+// #[no_mangle]
+// pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
+//     #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+//     // fnid uses the same constants as Crash().
+//     // Returns the RVA of the requested function.
+//     // Returns 0 on failure.
+//     {
+//         //let fn_addr = ... //TODO
+//         let _ = fnid;
+//         let fn_addr = 0;
+//         if fn_addr == 0 {
+//             return 0;
+//         }
+
+//         let dll_name: Vec<u16> = "testcrasher.dll\0".encode_utf16().collect();
+//         let module_base = unsafe {GetModuleHandleW(dll_name.as_ptr()) as u64};
+
+//         if module_base == 0 {
+//             return 0;
+//         }
+
+//         (fn_addr - module_base) as u32
+//     }
+
+//     #[cfg(not(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu"))))]
+//     {
+//         let _ = fnid;
+//         0
+//     }
+// }
+
 // use std::ffi::CStr;
 // use minidump::*;
 // use std::os::raw::c_char;
 // use std::fs;
-// use std::io::Write;
+// 
 
 // #[cfg(any(feature = "moz_phc", not(target_os = "windows"), target_os = "macos"))]
 // extern crate libc;
 
-// // Keep these in sync with CrashTestUtils.sys.mjs!
-// const CRASH_INVALID_POINTER_DEREF: i16 = 0;
-// const CRASH_PURE_VIRTUAL_CALL: i16 = 1;
-// const CRASH_OOM: i16 = 3;
-// const CRASH_MOZ_CRASH: i16 = 4;
-// const CRASH_ABORT: i16 = 5;
-// const CRASH_UNCAUGHT_EXCEPTION: i16 = 6;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_NO_MANS_LAND: i16 = 7;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_LAUNCHER: i16 = 8;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_UNKNOWN_OPCODE: i16 = 9;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_PUSH_NONVOL: i16 = 10;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_ALLOC_SMALL: i16 = 11;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_ALLOC_LARGE: i16 = 12;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_SAVE_NONVOL: i16 = 15;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_SAVE_NONVOL_FAR: i16 = 16;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_SAVE_XMM128: i16 = 17;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_SAVE_XMM128_FAR: i16 = 18;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_EPILOG: i16 = 19;
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// const CRASH_X64CFI_EOF: i16 = 20;
-// const CRASH_PHC_USE_AFTER_FREE: i16 = 21;
-// const CRASH_PHC_DOUBLE_FREE: i16 = 22;
-// const CRASH_PHC_BOUNDS_VIOLATION: i16 = 23;
-// #[cfg(target_os = "windows")]
-// const CRASH_HEAP_CORRUPTION: i16 = 24;
-// #[cfg(target_os = "macos")]
-// const CRASH_EXC_GUARD: i16 = 25;
-// #[cfg(not(target_os = "windows"))]
-// const CRASH_STACK_OVERFLOW: i16 = 26;
 
 // // FFI declarations for external C++ functions
 // #[cfg(feature = "moz_phc")]
@@ -96,33 +191,10 @@
 //     }
 //     panic!("failed to get a PHC allocation");
 // }
-
 // // Helper function for pure virtual call (Rust doesn't have this concept)
 // fn pure_virtual_call() {
 //     panic!("Pure virtual call simulation");
 // }
-
-// // Helper functions for stack overflow (non-Windows)
-// #[cfg(not(target_os = "windows"))]
-// fn recurse(random: i64) -> i64 {
-//     let mut buff: [u8; 256] = [0; 256];
-//     let mut result = random;
-    
-//     let gibberish = b"This is gibberish";
-//     let len = gibberish.len().min(buff.len());
-//     buff[..len].copy_from_slice(&gibberish[..len]);
-    
-//     for c in &buff {
-//         result = result.wrapping_add(*c as i64);
-//     }
-    
-//     if result == 0 {
-//         return result;
-//     }
-    
-//     recurse(result).wrapping_add(1)
-// }
-
 // #[cfg(not(target_os = "windows"))]
 // extern "C" fn overflow_stack_thread(arg: *mut std::os::raw::c_void) -> *mut std::os::raw::c_void {
 //     unsafe {
@@ -321,27 +393,6 @@
 
 // static mut TEST_DATA: [u8; 32] = [0; 32];
 
-// #[no_mangle]
-// pub extern "C" fn SaveAppMemory() -> u64 {
-//     unsafe {
-//         for i in 0..TEST_DATA.len() {
-//             TEST_DATA[i] = i as u8;
-//         }
-
-//         let addr = TEST_DATA.as_ptr() as u64;
-
-//         let mut file = match fs::File::create("crash-addr") {
-//             Ok(f) => f,
-//             Err(_) => return 0,
-//         };
-
-//         if writeln!(file, "0x{:x}", addr).is_err() {
-//             return 0;
-//         }
-
-//         addr
-//     }
-// }
 
 // #[cfg(feature = "moz_phc")]
 // extern "C" {

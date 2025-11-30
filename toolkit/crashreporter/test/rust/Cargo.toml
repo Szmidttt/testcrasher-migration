@@ -4,12 +4,23 @@ name = "rust_testcrasher"
 version = "0.1.0"
 authors = ["188766"]
 license = "MPL-2.0"
+
 description = "testcrasher in rust"
+
+[target."cfg(target_os = \"windows\")".dependencies.windows-sys]
+version = "0.52"
+features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader"
+]
 
 [dependencies]
 minidump = "0.24.0"
 libc = "0.2"
 mozilla-central-workspace-hack = { version = "0.1", features = ["rust_testcrasher"], optional = true }
+sadness-generator = "0.6.0"
+
+
 
 [lib]
 name = "rust_testcrasher"
