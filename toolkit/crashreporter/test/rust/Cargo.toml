@@ -20,9 +20,10 @@ libc = "0.2"
 mozilla-central-workspace-hack = { version = "0.1", features = ["rust_testcrasher"], optional = true }
 sadness-generator = "0.6.0"
 
-
-
 [lib]
 name = "rust_testcrasher"
 crate-type = ["staticlib"]
 path = "src/lib.rs"
+
+[features]
+moz_phc = []

@@ -323,11 +323,11 @@ extern "C" NS_EXPORT void Crash(int16_t how) {
   }
 }
 
-extern "C" NS_EXPORT void EnablePHC() {
-#ifdef MOZ_PHC
-  mozilla::phc::SetPHCState(mozilla::phc::PHCState::Enabled);
-#endif
-};
+// extern "C" NS_EXPORT void EnablePHC() {
+// #ifdef MOZ_PHC
+//   mozilla::phc::SetPHCState(mozilla::phc::PHCState::Enabled);
+// #endif
+// };
 
 // char testData[32];
 

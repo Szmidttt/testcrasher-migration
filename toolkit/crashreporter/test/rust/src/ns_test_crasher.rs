@@ -2,6 +2,7 @@ use std::fs;
 use std::io::Write;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use sadness_generator::SadnessFlavor;
+use crate::phc_bindings::root::mozilla::phc;
 
 // Keep these in sync with CrashTestUtils.sys.mjs!
 const CRASH_INVALID_POINTER_DEREF: i16 = 0;
@@ -82,6 +83,14 @@ const CRASH_STACK_OVERFLOW: i16 = 26;
 //         _ => {}
 //     }
 // }
+
+#[no_mangle]
+pub extern "C" fn EnablePHC() {
+    #[cfg(feature = "moz_phc")]
+    unsafe {
+        phc::SetPHCState(phc::PHCState_Enabled);
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn SaveAppMemory() -> u64 {
