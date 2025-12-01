@@ -342,16 +342,16 @@ extern "C" NS_EXPORT void Crash(int16_t how) {
 //   return (int64_t)testData;
 // }
 
-#ifdef XP_WIN
-static LONG WINAPI HandleException(EXCEPTION_POINTERS* exinfo) {
-  TerminateProcess(GetCurrentProcess(), 0);
-  return 0;
-}
+// #ifdef XP_WIN
+// static LONG WINAPI HandleException(EXCEPTION_POINTERS* exinfo) {
+//   TerminateProcess(GetCurrentProcess(), 0);
+//   return 0;
+// }
 
-extern "C" NS_EXPORT void TryOverrideExceptionHandler() {
-  SetUnhandledExceptionFilter(HandleException);
-}
-#endif
+// extern "C" NS_EXPORT void TryOverrideExceptionHandler() {
+//   SetUnhandledExceptionFilter(HandleException);
+// }
+// #endif
 
 extern "C" NS_EXPORT uint32_t GetWin64CFITestFnAddrOffset(int16_t fnid) {
 #if XP_WIN && HAVE_64BIT_BUILD && defined(_M_X64) && !defined(__MINGW32__)

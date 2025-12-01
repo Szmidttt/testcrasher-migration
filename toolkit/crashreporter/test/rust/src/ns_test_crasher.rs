@@ -1,6 +1,12 @@
 use std::fs;
 use std::io::Write;
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::{
+    LibraryLoader::GetModuleHandleW,
+    Diagnostics::Debug::{
+        SetUnhandledExceptionFilter, EXCEPTION_POINTERS,
+    },
+    Threading::{GetCurrentProcess, TerminateProcess}, 
+};
 use sadness_generator::SadnessFlavor;
 use crate::phc_bindings::root::mozilla::phc;
 
@@ -109,6 +115,19 @@ pub extern "C" fn SaveAppMemory() -> u64 {
     addr
 }
 
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn handle_exception(_exinfo: *const EXCEPTION_POINTERS) -> i32 {
+    TerminateProcess(GetCurrentProcess(), 0);
+    0
+}
+
+#[cfg(target_os = "windows")]
+#[no_mangle]
+pub extern "C" fn TryOverrideExceptionHandler() {
+    unsafe {
+        SetUnhandledExceptionFilter(Some(handle_exception));
+    }
+}
 
 //TODO po migracji funkcji crash usunąc komentarz let fn_addr = ...
 // #[no_mangle]
@@ -450,19 +469,6 @@ pub extern "C" fn SaveAppMemory() -> u64 {
 //     }
 // }
 
-// #[cfg(target_os = "windows")]
-// unsafe extern "system" fn handle_exception(_exinfo: *mut windows_impl::EXCEPTION_POINTERS) -> windows_impl::LONG {
-//     windows_impl::TerminateProcess(windows_impl::GetCurrentProcess(), 0);
-//     0
-// }
-
-// #[cfg(target_os = "windows")]
-// #[no_mangle]
-// pub extern "C" fn TryOverrideExceptionHandler() {
-//     unsafe {
-//         windows_impl::SetUnhandledExceptionFilter(Some(handle_exception));
-//     }
-// }
 
 // #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
 // extern "C" {
