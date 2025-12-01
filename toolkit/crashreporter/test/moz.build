@@ -21,7 +21,7 @@ OS_LIBS += [
 DIRS+= ["rust"]
 
 USE_LIBS += [
-    "rust_testcrasher",
+    "rust_testcrasher"
 ]
 
 USE_STATIC_MSVCRT = True
@@ -29,11 +29,8 @@ USE_STATIC_MSVCRT = True
 BROWSER_CHROME_MANIFESTS += ["browser/browser.toml"]
 
 SOURCES += [
-    "nsTestCrasher.cpp",
-]
-
-SOURCES += [
     "ExceptionThrower.cpp",
+    "wrapper.cpp",
 ]
 
 if CONFIG["OS_TARGET"] == "WINNT" and CONFIG["TARGET_CPU"] == "x86_64":
@@ -52,11 +49,9 @@ else:
         "-fexceptions",
     ]
 
-features = []
 
 if CONFIG["MOZ_PHC"]:
     DEFINES["MOZ_PHC"] = True
-    features.append('moz_phc')
 
 GeckoSharedLibrary("testcrasher", linkage="dependent")
 

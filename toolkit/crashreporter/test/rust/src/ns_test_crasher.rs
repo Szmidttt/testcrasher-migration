@@ -6,10 +6,20 @@ use windows_sys::Win32::System::{
         SetUnhandledExceptionFilter, EXCEPTION_POINTERS,
     },
     Threading::{GetCurrentProcess, TerminateProcess}, 
+    SystemInformation::GetSystemTimeAsFileTime
 };
+use windows_sys::Win32::Foundation::FILETIME;
 use sadness_generator::SadnessFlavor;
+#[cfg(feature = "moz_phc")]
 use crate::phc_bindings::root::mozilla::phc;
+#[cfg(feature = "moz_phc")]
+use crate::phc_bindings::root::Rust_IsPHCAllocation;
+#[cfg(feature = "moz_phc")]
+use crate::phc_bindings::root::Rust_SetPHCState;
 use std::ffi::c_void;
+use std::mem::MaybeUninit;
+#[cfg(feature = "moz_phc")]
+use libc::{malloc, free};
 
 #[cfg(all(windows, target_arch = "x86_64"))]
 extern "C" {
@@ -58,8 +68,11 @@ const CRASH_X64CFI_SAVE_XMM128_FAR: i16 = 18;
 const CRASH_X64CFI_EPILOG: i16 = 19;
 #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
 const CRASH_X64CFI_EOF: i16 = 20;
+#[cfg(feature = "moz_phc")]
 const CRASH_PHC_USE_AFTER_FREE: i16 = 21;
+#[cfg(feature = "moz_phc")]
 const CRASH_PHC_DOUBLE_FREE: i16 = 22;
+#[cfg(feature = "moz_phc")]
 const CRASH_PHC_BOUNDS_VIOLATION: i16 = 23;
 #[cfg(target_os = "windows")]
 const CRASH_HEAP_CORRUPTION: i16 = 24;
@@ -68,28 +81,108 @@ const CRASH_EXC_GUARD: i16 = 25;
 #[cfg(not(target_os = "windows"))]
 const CRASH_STACK_OVERFLOW: i16 = 26;
 
-// #[no_mangle]
-// pub extern "C" fn Crash(how: i16) {
-//     match how {
-//         CRASH_INVALID_POINTER_DEREF => {
-//             unsafe { SadnessFlavor::Segfault.make_sad(); }
-//         },
-//         #[cfg(not(target_os = "windows"))]
-//         CRASH_STACK_OVERFLOW => {
-//             unsafe { SadnessFlavor::StackOverflow.make_sad(); }
-//         },
-//         CRASH_ABORT => {
-//             unsafe { SadnessFlavor::Abort.make_sad(); }
-//         },
-//         _ => {}
-//     }
-// }
+#[cfg(feature = "moz_phc")]
+#[no_mangle]
+pub extern "C" fn GetPHCAllocation(size: usize) -> *mut u8 {
+    // A crude but effective way to get a PHC allocation.
+    for _ in 0..2000000 {
+        unsafe {
+            let p = malloc(size) as *mut u8;
+            if !p.is_null() && Rust_IsPHCAllocation(p as *mut c_void, std::ptr::null_mut()) {
+                return p;
+            }
+            free(p as *mut c_void);
+        }
+    }
+    panic!("failed to get a PHC allocation");
+}
+
+// This ensures tests have enough committed stack space.
+// Must not be inlined, or the stack space would not be freed for the caller to use.
+#[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+#[inline(never)]
+unsafe fn reserve_stack() {
+    const ELEMENTS: usize = (1024000 / std::mem::size_of::<FILETIME>()) + 1;
+    let mut stackmem = MaybeUninit::<[FILETIME; ELEMENTS]>::uninit();
+    let base_ptr = stackmem.as_mut_ptr() as *mut FILETIME;
+    GetSystemTimeAsFileTime(base_ptr);
+    GetSystemTimeAsFileTime(base_ptr.add(ELEMENTS - 1));
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Crash(how: i16) {
+    match how {
+        CRASH_INVALID_POINTER_DEREF => {
+            SadnessFlavor::Segfault.make_sad(); 
+        },
+        #[cfg(not(target_os = "windows"))]
+        CRASH_STACK_OVERFLOW => {
+            SadnessFlavor::StackOverflow.make_sad(); 
+        },
+        CRASH_ABORT => {
+            SadnessFlavor::Abort.make_sad();
+        },
+        #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+        CRASH_X64CFI_UNKNOWN_OPCODE
+        | CRASH_X64CFI_PUSH_NONVOL
+        | CRASH_X64CFI_ALLOC_SMALL
+        | CRASH_X64CFI_ALLOC_LARGE
+        | CRASH_X64CFI_SAVE_NONVOL
+        | CRASH_X64CFI_SAVE_NONVOL_FAR
+        | CRASH_X64CFI_SAVE_XMM128
+        | CRASH_X64CFI_SAVE_XMM128_FAR
+        | CRASH_X64CFI_EPILOG => {
+            unsafe {
+                let fn_addr =resolve_cfi_func_addr(how);
+                if fn_addr == 0 {
+                    return;
+                }
+                let launcher_addr = resolve_cfi_func_addr(CRASH_X64CFI_LAUNCHER);
+                if launcher_addr == 0 {
+                    return;
+                }
+                reserve_stack();
+                x64CrashCFITest_Launcher(0, fn_addr as *mut std::os::raw::c_void);
+            }
+        },
+        #[cfg(feature = "moz_phc")]
+        CRASH_PHC_USE_AFTER_FREE => {
+            unsafe {
+                let p = GetPHCAllocation(32);
+                if !p.is_null() {
+                    free(p as *mut c_void);
+                    *p = 0;
+                }
+            }
+        },
+        #[cfg(feature = "moz_phc")]
+        CRASH_PHC_DOUBLE_FREE => {
+            unsafe {
+                let p = GetPHCAllocation(64);
+                if !p.is_null() {
+                    free(p as *mut c_void);
+                    free(p as *mut c_void);
+                }
+            }
+        },
+        #[cfg(feature = "moz_phc")]
+        CRASH_PHC_BOUNDS_VIOLATION => {
+            unsafe {
+                let p = GetPHCAllocation(96);
+                if !p.is_null() {
+                    *p.offset(96) = 0;
+                }
+            }
+        },
+        _ => {}
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn EnablePHC() {
     #[cfg(feature = "moz_phc")]
     unsafe {
-        phc::SetPHCState(phc::PHCState_Enabled);
+        Rust_SetPHCState(phc::PHCState_Enabled);
     }
 }
 
@@ -162,7 +255,7 @@ pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
         }
 
         let dll_name: Vec<u16> = "testcrasher.dll\0".encode_utf16().collect();
-        let module_base = unsafe {GetModuleHandleW(dll_name.as_ptr()) as u64};
+        let module_base = GetModuleHandleW(dll_name.as_ptr()) as u64;
 
         if module_base == 0 {
             return 0;
@@ -178,40 +271,6 @@ pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
     }
 }
 
-// use std::ffi::CStr;
-// use minidump::*;
-// use std::os::raw::c_char;
-// use std::fs;
-// 
-
-// #[cfg(any(feature = "moz_phc", not(target_os = "windows"), target_os = "macos"))]
-// extern crate libc;
-
-
-// // FFI declarations for external C++ functions
-// #[cfg(feature = "moz_phc")]
-// extern "C" {
-//     fn PHC_IsPHCAllocation(ptr: *const u8, info: *mut u8) -> bool;
-// }
-
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// extern "C" {
-//     fn x64CrashCFITest_Launcher(returnpfn: u64, test_proc: *mut std::os::raw::c_void) -> u64;
-// }
-
-// // This ensures tests have enough committed stack space.
-// // Must not be inlined, or the stack space would not be freed for the caller to use.
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// #[inline(never)]
-// fn reserve_stack() {
-//     unsafe {
-//         // We must actually use the memory in some way that the compiler can't optimize away.
-//         const ELEMENTS: usize = (1024000 / std::mem::size_of::<windows_impl::FILETIME>()) + 1;
-//         let mut stackmem: [windows_impl::FILETIME; ELEMENTS] = std::mem::zeroed();
-//         windows_impl::GetSystemTimeAsFileTime(&mut stackmem[0]);
-//         windows_impl::GetSystemTimeAsFileTime(&mut stackmem[ELEMENTS - 1]);
-//     }
-// }
 
 // // Helper functions for stack overflow (non-Windows)
 // #[cfg(not(target_os = "windows"))]
@@ -242,21 +301,6 @@ pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
 //     panic!("Exception thrown");
 // }
 
-// // GetPHCAllocation - gets a PHC-allocated memory block
-// #[cfg(feature = "moz_phc")]
-// #[no_mangle]
-// pub extern "C" fn GetPHCAllocation(size: usize) -> *mut u8 {
-//     for _ in 0..2000000 {
-//         unsafe {
-//             let p = libc::malloc(size) as *mut u8;
-//             if !p.is_null() && PHC_IsPHCAllocation(p, std::ptr::null_mut()) {
-//                 return p;
-//             }
-//             libc::free(p as *mut libc::c_void);
-//         }
-//     }
-//     panic!("failed to get a PHC allocation");
-// }
 // // Helper function for pure virtual call (Rust doesn't have this concept)
 // fn pure_virtual_call() {
 //     panic!("Pure virtual call simulation");
@@ -297,58 +341,7 @@ pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
 //         CRASH_UNCAUGHT_EXCEPTION => {
 //             ThrowException();
 //         }
-//         #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-//         CRASH_X64CFI_UNKNOWN_OPCODE
-//         | CRASH_X64CFI_PUSH_NONVOL
-//         | CRASH_X64CFI_ALLOC_SMALL
-//         | CRASH_X64CFI_ALLOC_LARGE
-//         | CRASH_X64CFI_SAVE_NONVOL
-//         | CRASH_X64CFI_SAVE_NONVOL_FAR
-//         | CRASH_X64CFI_SAVE_XMM128
-//         | CRASH_X64CFI_SAVE_XMM128_FAR
-//         | CRASH_X64CFI_EPILOG => {
-//             unsafe {
-//                 let fn_addr = GetWin64CFITestMap_GetFunctionAddress(how);
-//                 if fn_addr == 0 {
-//                     return;
-//                 }
-//                 let launcher_addr = GetWin64CFITestMap_GetFunctionAddress(CRASH_X64CFI_LAUNCHER);
-//                 if launcher_addr == 0 {
-//                     return;
-//                 }
-//                 reserve_stack();
-//                 x64CrashCFITest_Launcher(0, fn_addr as *mut std::os::raw::c_void);
-//             }
-//         }
-//         #[cfg(feature = "moz_phc")]
-//         CRASH_PHC_USE_AFTER_FREE => {
-//             unsafe {
-//                 let p = GetPHCAllocation(32);
-//                 if !p.is_null() {
-//                     libc::free(p as *mut libc::c_void);
-//                     *p = 0;
-//                 }
-//             }
-//         }
-//         #[cfg(feature = "moz_phc")]
-//         CRASH_PHC_DOUBLE_FREE => {
-//             unsafe {
-//                 let p = GetPHCAllocation(64);
-//                 if !p.is_null() {
-//                     libc::free(p as *mut libc::c_void);
-//                     libc::free(p as *mut libc::c_void);
-//                 }
-//             }
-//         }
-//         #[cfg(feature = "moz_phc")]
-//         CRASH_PHC_BOUNDS_VIOLATION => {
-//             unsafe {
-//                 let p = GetPHCAllocation(96);
-//                 if !p.is_null() {
-//                     *p.offset(96) = 0;
-//                 }
-//             }
-//         }
+//     
 //         #[cfg(target_os = "windows")]
 //         CRASH_HEAP_CORRUPTION => {
 //             unsafe {

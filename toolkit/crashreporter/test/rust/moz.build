@@ -1,5 +1,11 @@
+features = []
+
+if CONFIG["MOZ_PHC"]:
+    features += ["moz_phc"]
+
 RustLibrary(
-    "rust_testcrasher"
+    "rust_testcrasher",
+    features
 )
 
 OS_LIBS += [
@@ -9,3 +15,4 @@ OS_LIBS += [
 # have to link it.
 if CONFIG["OS_ARCH"] == "WINNT" and CONFIG["CC_TYPE"] != "clang-cl":
     OS_LIBS += ["bcryptprimitives"]
+

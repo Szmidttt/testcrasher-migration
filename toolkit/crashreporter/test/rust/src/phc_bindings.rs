@@ -18,17 +18,15 @@ pub mod root {
             pub const PHCState_OnlyFree: PHCState = 0;
             pub const PHCState_Enabled: PHCState = 1;
             pub type PHCState = ::std::os::raw::c_int;
-            unsafe extern "C" {
-                #[link_name = "\u{1}?SetPHCState@phc@mozilla@@YAXW4PHCState@12@@Z"]
-                pub fn SetPHCState(aState: root::mozilla::phc::PHCState);
-            }
-            unsafe extern "C" {
-                #[link_name = "\u{1}?IsPHCAllocation@phc@mozilla@@YA_NPEBXPEAVAddrInfo@12@@Z"]
-                pub fn IsPHCAllocation(
-                    arg1: *const ::std::os::raw::c_void,
-                    arg2: *mut root::mozilla::phc::AddrInfo,
-                ) -> bool;
-            }
         }
+    }
+    unsafe extern "C" {
+        pub fn Rust_SetPHCState(aState: root::mozilla::phc::PHCState);
+    }
+    unsafe extern "C" {
+        pub fn Rust_IsPHCAllocation(
+            aPtr: *const ::std::os::raw::c_void,
+            aOutInfo: *mut root::mozilla::phc::AddrInfo,
+        ) -> bool;
     }
 }

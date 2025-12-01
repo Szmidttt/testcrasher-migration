@@ -324,18 +324,19 @@ extern "C" NS_EXPORT void Crash(int16_t how) {
 }
 
 
-// extern "C" NS_EXPORT uint32_t GetWin64CFITestFnAddrOffset(int16_t fnid) {
-// #if XP_WIN && HAVE_64BIT_BUILD && defined(_M_X64) && !defined(__MINGW32__)
-//   // fnid uses the same constants as Crash().
-//   // Returns the RVA of the requested function.
-//   // Returns 0 on failure.
-//   auto m = GetWin64CFITestMap();
-//   if (m.find(fnid) == m.end()) {
-//     return 0;
-//   }
-//   uint64_t moduleBase = (uint64_t)GetModuleHandleW(L"testcrasher.dll");
-//   return ((uint64_t)m[fnid]) - moduleBase;
-// #else
-//   return 0;
-// #endif  // XP_WIN && HAVE_64BIT_BUILD && !defined(__MINGW32__)
-// }
+
+extern "C" NS_EXPORT uint32_t GetWin64CFITestFnAddrOffset(int16_t fnid) {
+#if XP_WIN && HAVE_64BIT_BUILD && defined(_M_X64) && !defined(__MINGW32__)
+  // fnid uses the same constants as Crash().
+  // Returns the RVA of the requested function.
+  // Returns 0 on failure.
+  auto m = GetWin64CFITestMap();
+  if (m.find(fnid) == m.end()) {
+    return 0;
+  }
+  uint64_t moduleBase = (uint64_t)GetModuleHandleW(L"testcrasher.dll");
+  return ((uint64_t)m[fnid]) - moduleBase;
+#else
+  return 0;
+#endif  // XP_WIN && HAVE_64BIT_BUILD && !defined(__MINGW32__)
+}
