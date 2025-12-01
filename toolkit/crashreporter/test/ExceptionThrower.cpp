@@ -1,3 +1,3 @@
 #include "ExceptionThrower.h"
 
-void ThrowException() { throw 1; }
+extern "C" void ThrowException() { throw 1; }

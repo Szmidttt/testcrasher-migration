@@ -1,7 +1,8 @@
 use std::fs;
 use std::io::Write;
 use windows_sys::Win32::System::{
-    LibraryLoader::GetModuleHandleW,
+    LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW},
+    Memory::GetProcessHeap,
     Diagnostics::Debug::{
         SetUnhandledExceptionFilter, EXCEPTION_POINTERS,
     },
@@ -11,11 +12,15 @@ use windows_sys::Win32::System::{
 use windows_sys::Win32::Foundation::FILETIME;
 use sadness_generator::SadnessFlavor;
 #[cfg(feature = "moz_phc")]
-use crate::phc_bindings::root::mozilla::phc;
-#[cfg(feature = "moz_phc")]
-use crate::phc_bindings::root::Rust_IsPHCAllocation;
-#[cfg(feature = "moz_phc")]
-use crate::phc_bindings::root::Rust_SetPHCState;
+use crate::bindings::root::{
+    mozilla::phc,
+    Rust_IsPHCAllocation,
+    Rust_SetPHCState};
+use crate::bindings::root::{
+    Rust_MOZ_CRASH,
+    Rust_moz_xmalloc,
+    PureVirtualCall,
+    ThrowException};
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
 #[cfg(feature = "moz_phc")]
@@ -81,6 +86,25 @@ const CRASH_EXC_GUARD: i16 = 25;
 #[cfg(not(target_os = "windows"))]
 const CRASH_STACK_OVERFLOW: i16 = 26;
 
+#[cfg(target_os = "windows")]
+unsafe fn heap_corruption() {
+    let kernel32_name: Vec<u16> = "Kernel32.dll\0".encode_utf16().collect();
+    let kernel32 = LoadLibraryW(kernel32_name.as_ptr());
+
+    if kernel32 == 0 { return; }
+
+    let func_name = b"HeapFree\0"; 
+    let real_heap_free_addr = GetProcAddress(kernel32, func_name.as_ptr());
+
+    if let Some(func_ptr) = real_heap_free_addr {
+        let real_heap_free: unsafe extern "system" fn(isize, u32, *mut std::ffi::c_void) -> i32 = 
+            std::mem::transmute(func_ptr);
+        let heap = GetProcessHeap();
+        let bad_pointer = 3 as *mut std::ffi::c_void;
+        real_heap_free(heap, 0, bad_pointer);
+    }
+}
+
 #[cfg(feature = "moz_phc")]
 #[no_mangle]
 pub extern "C" fn GetPHCAllocation(size: usize) -> *mut u8 {
@@ -115,12 +139,22 @@ pub unsafe extern "C" fn Crash(how: i16) {
         CRASH_INVALID_POINTER_DEREF => {
             SadnessFlavor::Segfault.make_sad(); 
         },
-        #[cfg(not(target_os = "windows"))]
-        CRASH_STACK_OVERFLOW => {
-            SadnessFlavor::StackOverflow.make_sad(); 
+        CRASH_PURE_VIRTUAL_CALL => {
+            PureVirtualCall();
+        },
+        CRASH_OOM => {
+            Rust_moz_xmalloc(usize::MAX);
+            Rust_moz_xmalloc(usize::MAX);
+            Rust_moz_xmalloc(usize::MAX);
+        },
+        CRASH_MOZ_CRASH => {
+            Rust_MOZ_CRASH();
         },
         CRASH_ABORT => {
             SadnessFlavor::Abort.make_sad();
+        },
+        CRASH_UNCAUGHT_EXCEPTION => {
+            ThrowException();
         },
         #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
         CRASH_X64CFI_UNKNOWN_OPCODE
@@ -174,7 +208,18 @@ pub unsafe extern "C" fn Crash(how: i16) {
                 }
             }
         },
-        _ => {}
+        #[cfg(target_os = "windows")]
+        CRASH_HEAP_CORRUPTION => {
+            heap_corruption();
+            panic!("1");
+        },
+        #[cfg(target_os = "macos")]
+        CRASH_EXC_GUARD => {panic!();},
+        #[cfg(not(target_os = "windows"))]
+        CRASH_STACK_OVERFLOW => {
+            SadnessFlavor::StackOverflow.make_sad(); 
+        },
+        _ => {panic!("1");}
     }
 }
 
@@ -272,135 +317,6 @@ pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
 }
 
 
-// // Helper functions for stack overflow (non-Windows)
-// #[cfg(not(target_os = "windows"))]
-// fn recurse(random: i64) -> i64 {
-//     let mut buff: [u8; 256] = [0; 256];
-//     let mut result = random;
-    
-//     let gibberish = b"This is gibberish";
-//     let len = gibberish.len().min(buff.len());
-//     buff[..len].copy_from_slice(&gibberish[..len]);
-    
-//     for c in &buff {
-//         result = result.wrapping_add(*c as i64);
-//     }
-    
-//     if result == 0 {
-//         return result;
-//     }
-    
-//     recurse(result).wrapping_add(1)
-// }
-
-// // ThrowException - throws a C++ exception
-// #[no_mangle]
-// pub extern "C" fn ThrowException() {
-//     // In Rust, we can't throw C++ exceptions directly, so we panic
-//     // which will unwind similarly (though not identically to C++ exceptions)
-//     panic!("Exception thrown");
-// }
-
-// // Helper function for pure virtual call (Rust doesn't have this concept)
-// fn pure_virtual_call() {
-//     panic!("Pure virtual call simulation");
-// }
-// #[cfg(not(target_os = "windows"))]
-// extern "C" fn overflow_stack_thread(arg: *mut std::os::raw::c_void) -> *mut std::os::raw::c_void {
-//     unsafe {
-//         let data = *(arg as *const i64);
-//         let result = recurse(data);
-//         result as *mut std::os::raw::c_void
-//     }
-// }
-
-// #[no_mangle]
-// pub extern "C" fn Crash(how: i16) {
-//     match how {
-//         CRASH_INVALID_POINTER_DEREF => {
-//             unsafe {
-//                 let foo: *mut i32 = 0x42 as *mut i32;
-//                 *foo = 0;
-//             }
-//         }
-//         CRASH_PURE_VIRTUAL_CALL => {
-//             pure_virtual_call();
-//         }
-//         CRASH_OOM => {
-//             // Attempt to allocate massive amounts of memory
-//             let _ = vec![0u8; usize::MAX];
-//             let _ = vec![0u8; usize::MAX];
-//             let _ = vec![0u8; usize::MAX];
-//         }
-//         CRASH_MOZ_CRASH => {
-//             panic!("MOZ_CRASH");
-//         }
-//         CRASH_ABORT => {
-//             std::process::abort();
-//         }
-//         CRASH_UNCAUGHT_EXCEPTION => {
-//             ThrowException();
-//         }
-//     
-//         #[cfg(target_os = "windows")]
-//         CRASH_HEAP_CORRUPTION => {
-//             unsafe {
-//                 heap_corruption_crash();
-//             }
-//         }
-//         #[cfg(target_os = "macos")]
-//         CRASH_EXC_GUARD => {
-//             unsafe {
-//                 exc_guard_crash();
-//             }
-//         }
-//         #[cfg(not(target_os = "windows"))]
-//         CRASH_STACK_OVERFLOW => {
-//             unsafe {
-//                 let mut thread_id: libc::pthread_t = std::mem::zeroed();
-//                 let data: i64 = 1337;
-//                 let rv = libc::pthread_create(
-//                     &mut thread_id,
-//                     std::ptr::null(),
-//                     overflow_stack_thread,
-//                     &data as *const i64 as *mut std::os::raw::c_void,
-//                 );
-//                 if rv == 0 {
-//                     libc::pthread_join(thread_id, std::ptr::null_mut());
-//                 }
-//             }
-//         }
-//         _ => {}
-//     }
-// }
-
-// // Platform-specific crash implementations
-// #[cfg(target_os = "windows")]
-// unsafe fn heap_corruption_crash() {
-//     use std::ffi::OsStr;
-//     use std::os::windows::ffi::OsStrExt;
-
-//     let kernel32_name: Vec<u16> = OsStr::new("Kernel32.dll")
-//         .encode_wide()
-//         .chain(std::iter::once(0))
-//         .collect();
-//     let kernel32 = windows_impl::LoadLibraryW(kernel32_name.as_ptr());
-
-//     if kernel32 != std::ptr::null_mut() {
-//         let heap_free_name = b"HeapFree\0";
-//         let heap_free_ptr = windows_impl::GetProcAddress(kernel32, heap_free_name.as_ptr() as *const i8);
-
-//         if heap_free_ptr != std::ptr::null_mut() {
-//             let heap = windows_impl::GetProcessHeap();
-//             let bad_pointer = 3 as *mut std::os::raw::c_void;
-
-//             type HeapFreeT = unsafe extern "system" fn(isize, u32, *mut std::os::raw::c_void) -> i32;
-//             let heap_free: HeapFreeT = std::mem::transmute(heap_free_ptr);
-//             heap_free(heap as isize, 0, bad_pointer);
-//         }
-//     }
-// }
-
 // #[cfg(target_os = "macos")]
 // unsafe fn exc_guard_crash() {
 //     use std::ffi::CString;
@@ -450,84 +366,4 @@ pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
 // }
 
 
-// static mut TEST_DATA: [u8; 32] = [0; 32];
 
-
-// #[cfg(feature = "moz_phc")]
-// extern "C" {
-//     fn PHC_SetState(state: i32);
-// }
-
-// #[no_mangle]
-// pub extern "C" fn EnablePHC() {
-//     #[cfg(feature = "moz_phc")]
-//     unsafe {
-//         PHC_SetState(1);
-//     }
-// }
-
-// #[cfg(target_os = "windows")]
-// mod windows_impl {
-//     use std::os::raw::c_void;
-
-//     #[repr(C)]
-//     pub struct EXCEPTION_POINTERS {
-//         _unused: [u8; 0],
-//     }
-
-//     pub type LONG = i32;
-//     pub type HANDLE = *mut c_void;
-
-//     #[cfg(all(target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-//     #[repr(C)]
-//     pub struct FILETIME {
-//         pub dw_low_date_time: u32,
-//         pub dw_high_date_time: u32,
-//     }
-
-//     extern "system" {
-//         pub fn TerminateProcess(process: HANDLE, exit_code: u32) -> i32;
-//         pub fn GetCurrentProcess() -> HANDLE;
-//         pub fn SetUnhandledExceptionFilter(
-//             handler: Option<unsafe extern "system" fn(*mut EXCEPTION_POINTERS) -> LONG>,
-//         ) -> Option<unsafe extern "system" fn(*mut EXCEPTION_POINTERS) -> LONG>;
-//         pub fn GetModuleHandleW(module_name: *const u16) -> *mut c_void;
-//         pub fn LoadLibraryW(filename: *const u16) -> *mut c_void;
-//         pub fn GetProcAddress(module: *mut c_void, proc_name: *const i8) -> *mut c_void;
-//         pub fn GetProcessHeap() -> isize;
-//         #[cfg(all(target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-//         pub fn GetSystemTimeAsFileTime(system_time: *mut FILETIME);
-//     }
-// }
-
-
-// #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-// extern "C" {
-//     fn GetWin64CFITestMap_GetFunctionAddress(fnid: i16) -> u64;
-// }
-
-// #[no_mangle]
-// pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
-//     #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-//     unsafe {
-//         let fn_addr = GetWin64CFITestMap_GetFunctionAddress(fnid);
-//         if fn_addr == 0 {
-//             return 0;
-//         }
-
-//         let dll_name: Vec<u16> = "testcrasher.dll\0".encode_utf16().collect();
-//         let module_base = windows_impl::GetModuleHandleW(dll_name.as_ptr()) as u64;
-
-//         if module_base == 0 {
-//             return 0;
-//         }
-
-//         (fn_addr - module_base) as u32
-//     }
-
-//     #[cfg(not(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu"))))]
-//     {
-//         let _ = fnid;
-//         0
-//     }
-// }

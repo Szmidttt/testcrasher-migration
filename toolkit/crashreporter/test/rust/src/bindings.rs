@@ -29,4 +29,16 @@ pub mod root {
             aOutInfo: *mut root::mozilla::phc::AddrInfo,
         ) -> bool;
     }
+    unsafe extern "C" {
+        pub fn PureVirtualCall();
+    }
+    unsafe extern "C" {
+        pub fn ThrowException();
+    }
+    unsafe extern "C" {
+        pub fn Rust_moz_xmalloc(size: usize) -> *mut ::std::os::raw::c_void;
+    }
+    unsafe extern "C" {
+        pub fn Rust_MOZ_CRASH();
+    }
 }

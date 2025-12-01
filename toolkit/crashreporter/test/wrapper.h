@@ -1,5 +1,5 @@
 /*
-bindgen wrapper.h -o rust/src/phc_bindings.rs --enable-cxx-namespaces --allowlist-function "Rust_.*" --allowlist-function "mozilla::phc::.*" --opaque-type "mozilla::phc::AddrInfo" -- -x c++ -std=c++17
+bindgen wrapper.h -o rust/src/bindings.rs --enable-cxx-namespaces --opaque-type "mozilla::phc::AddrInfo" -- -x c++ -std=c++17
 */
 
 #define MOZ_JEMALLOC_API
@@ -21,4 +21,8 @@ enum PHCState {
 extern "C" {
     void Rust_SetPHCState(mozilla::phc::PHCState aState);
     bool Rust_IsPHCAllocation(const void* aPtr, mozilla::phc::AddrInfo* aOutInfo);
-}
+    void PureVirtualCall();
+    void ThrowException();
+    void* Rust_moz_xmalloc(size_t size);
+    void Rust_MOZ_CRASH();
+    }

@@ -34,33 +34,6 @@ typedef int (*guarded_open_np_t)(const char*, const guardid_t*, u_int, int,
 #  include "PHC.h"
 #endif
 
-/*
- * This pure virtual call example is from MSDN
- */
-class A;
-
-void fcn(A*);
-
-class A {
- public:
-  virtual void f() = 0;
-  A() { fcn(this); }
-};
-
-class B : A {
-  void f() override {}
-
- public:
-  void use() {}
-};
-
-void fcn(A* p) { p->f(); }
-
-void PureVirtualCall() {
-  // generates a pure virtual function call
-  B b;
-  b.use();  // make sure b's actually used
-}
 
 extern "C" {
 #if XP_WIN && HAVE_64BIT_BUILD && defined(_M_X64) && !defined(__MINGW32__)

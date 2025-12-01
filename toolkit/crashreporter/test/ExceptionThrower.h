@@ -1,1 +1,1 @@
-void ThrowException();
+extern "C" void ThrowException();
