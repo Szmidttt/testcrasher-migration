@@ -9,6 +9,23 @@ use windows_sys::Win32::System::{
 };
 use sadness_generator::SadnessFlavor;
 use crate::phc_bindings::root::mozilla::phc;
+use std::ffi::c_void;
+
+#[cfg(all(windows, target_arch = "x86_64"))]
+extern "C" {
+    fn x64CrashCFITest_NO_MANS_LAND(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_Launcher(returnpfn: u64, testProc: *mut c_void) -> u64;
+    fn x64CrashCFITest_UnknownOpcode(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_PUSH_NONVOL(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_ALLOC_SMALL(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_ALLOC_LARGE(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_SAVE_NONVOL(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_SAVE_NONVOL_FAR(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_SAVE_XMM128(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_SAVE_XMM128_FAR(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_EPILOG(returnpfn: u64, ptr: *mut c_void) -> u64;
+    fn x64CrashCFITest_EOF(returnpfn: u64, ptr: *mut c_void) -> u64;
+}
 
 // Keep these in sync with CrashTestUtils.sys.mjs!
 const CRASH_INVALID_POINTER_DEREF: i16 = 0;
@@ -50,28 +67,6 @@ const CRASH_HEAP_CORRUPTION: i16 = 24;
 const CRASH_EXC_GUARD: i16 = 25;
 #[cfg(not(target_os = "windows"))]
 const CRASH_STACK_OVERFLOW: i16 = 26;
-
-
-// // Helper functions for stack overflow (non-Windows)
-// #[cfg(not(target_os = "windows"))]
-// fn recurse(random: i64) -> i64 {
-//     let mut buff: [u8; 256] = [0; 256];
-//     let mut result = random;
-    
-//     let gibberish = b"This is gibberish";
-//     let len = gibberish.len().min(buff.len());
-//     buff[..len].copy_from_slice(&gibberish[..len]);
-    
-//     for c in &buff {
-//         result = result.wrapping_add(*c as i64);
-//     }
-    
-//     if result == 0 {
-//         return result;
-//     }
-    
-//     recurse(result).wrapping_add(1)
-// }
 
 // #[no_mangle]
 // pub extern "C" fn Crash(how: i16) {
@@ -129,37 +124,59 @@ pub extern "C" fn TryOverrideExceptionHandler() {
     }
 }
 
-//TODO po migracji funkcji crash usunąc komentarz let fn_addr = ...
-// #[no_mangle]
-// pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
-//     #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
-//     // fnid uses the same constants as Crash().
-//     // Returns the RVA of the requested function.
-//     // Returns 0 on failure.
-//     {
-//         //let fn_addr = ... //TODO
-//         let _ = fnid;
-//         let fn_addr = 0;
-//         if fn_addr == 0 {
-//             return 0;
-//         }
+#[cfg(all(windows, target_arch = "x86_64"))]
+type CfiAsmFunc = unsafe extern "C" fn(u64, *mut c_void) -> u64;
 
-//         let dll_name: Vec<u16> = "testcrasher.dll\0".encode_utf16().collect();
-//         let module_base = unsafe {GetModuleHandleW(dll_name.as_ptr()) as u64};
+#[cfg(all(windows, target_arch = "x86_64"))]
+unsafe fn resolve_cfi_func_addr(fnid: i16) -> u64 {
+    let target_func: CfiAsmFunc = match fnid {
+        CRASH_X64CFI_NO_MANS_LAND => x64CrashCFITest_NO_MANS_LAND,
+        CRASH_X64CFI_LAUNCHER => x64CrashCFITest_Launcher,
+        CRASH_X64CFI_UNKNOWN_OPCODE => x64CrashCFITest_UnknownOpcode,
+        CRASH_X64CFI_PUSH_NONVOL => x64CrashCFITest_PUSH_NONVOL,
+        CRASH_X64CFI_ALLOC_SMALL => x64CrashCFITest_ALLOC_SMALL,
+        CRASH_X64CFI_ALLOC_LARGE => x64CrashCFITest_ALLOC_LARGE,
+        CRASH_X64CFI_SAVE_NONVOL => x64CrashCFITest_SAVE_NONVOL,
+        CRASH_X64CFI_SAVE_NONVOL_FAR => x64CrashCFITest_SAVE_NONVOL_FAR,
+        CRASH_X64CFI_SAVE_XMM128 => x64CrashCFITest_SAVE_XMM128,
+        CRASH_X64CFI_SAVE_XMM128_FAR => x64CrashCFITest_SAVE_XMM128_FAR,
+        CRASH_X64CFI_EPILOG => x64CrashCFITest_EPILOG,
+        CRASH_X64CFI_EOF => x64CrashCFITest_EOF,
+        _ => return 0,
+    };
+    // ret values point to jump table entries, not the actual function bodies.
+    // Get the correct pointer by calling the function with returnpfn=1
+    target_func(1, std::ptr::null_mut())
+}
 
-//         if module_base == 0 {
-//             return 0;
-//         }
+#[no_mangle]
+pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
+    #[cfg(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu")))]
+    // fnid uses the same constants as Crash().
+    // Returns the RVA of the requested function.
+    // Returns 0 on failure.
+    unsafe{
+        let fn_addr= resolve_cfi_func_addr(fnid);
+        if fn_addr == 0 {
+            return 0;
+        }
 
-//         (fn_addr - module_base) as u32
-//     }
+        let dll_name: Vec<u16> = "testcrasher.dll\0".encode_utf16().collect();
+        let module_base = unsafe {GetModuleHandleW(dll_name.as_ptr()) as u64};
 
-//     #[cfg(not(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu"))))]
-//     {
-//         let _ = fnid;
-//         0
-//     }
-// }
+        if module_base == 0 {
+            return 0;
+        }
+
+        (fn_addr - module_base) as u32
+    }
+
+    #[cfg(not(all(target_os = "windows", target_pointer_width = "64", target_arch = "x86_64", not(target_env = "gnu"))))]
+    {
+        let _ = fnid;
+        0
+    }
+}
 
 // use std::ffi::CStr;
 // use minidump::*;
@@ -194,6 +211,27 @@ pub extern "C" fn TryOverrideExceptionHandler() {
 //         windows_impl::GetSystemTimeAsFileTime(&mut stackmem[0]);
 //         windows_impl::GetSystemTimeAsFileTime(&mut stackmem[ELEMENTS - 1]);
 //     }
+// }
+
+// // Helper functions for stack overflow (non-Windows)
+// #[cfg(not(target_os = "windows"))]
+// fn recurse(random: i64) -> i64 {
+//     let mut buff: [u8; 256] = [0; 256];
+//     let mut result = random;
+    
+//     let gibberish = b"This is gibberish";
+//     let len = gibberish.len().min(buff.len());
+//     buff[..len].copy_from_slice(&gibberish[..len]);
+    
+//     for c in &buff {
+//         result = result.wrapping_add(*c as i64);
+//     }
+    
+//     if result == 0 {
+//         return result;
+//     }
+    
+//     recurse(result).wrapping_add(1)
 // }
 
 // // ThrowException - throws a C++ exception
