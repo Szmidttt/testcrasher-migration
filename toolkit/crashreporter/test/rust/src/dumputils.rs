@@ -7,8 +7,9 @@ use std::fs;
 #[no_mangle]
 pub extern "C" fn DumpHasStream(dump_file: *const c_char, stream_type: u32) -> bool {
     let path_cstr = unsafe {CStr::from_ptr(dump_file)};
-    let Ok(path_str) = path_cstr.to_str() else {
-        return false;
+    let path_str = match path_cstr.to_str() {
+        Ok(s) => s,
+        Err(_) => return false,
     };
     let dump = match Minidump::read_path(path_str) {
         Ok(d)=> d,

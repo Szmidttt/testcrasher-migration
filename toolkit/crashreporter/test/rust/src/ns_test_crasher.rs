@@ -25,6 +25,8 @@ use std::ffi::c_void;
 use std::mem::MaybeUninit;
 #[cfg(feature = "moz_phc")]
 use libc::{malloc, free};
+#[cfg(target_os = "macos")]
+use libc::{c_int, c_uint, c_char};
 
 #[cfg(all(windows, target_arch = "x86_64"))]
 extern "C" {
@@ -214,7 +216,9 @@ pub unsafe extern "C" fn Crash(how: i16) {
             panic!("1");
         },
         #[cfg(target_os = "macos")]
-        CRASH_EXC_GUARD => {panic!();},
+        CRASH_EXC_GUARD => {
+            exc_guard_crash();
+        },
         #[cfg(not(target_os = "windows"))]
         CRASH_STACK_OVERFLOW => {
             SadnessFlavor::StackOverflow.make_sad(); 
@@ -317,53 +321,53 @@ pub extern "C" fn GetWin64CFITestFnAddrOffset(fnid: i16) -> u32 {
 }
 
 
-// #[cfg(target_os = "macos")]
-// unsafe fn exc_guard_crash() {
-//     use std::ffi::CString;
+#[cfg(target_os = "macos")]
+unsafe fn exc_guard_crash() {
+    use std::ffi::CString;
 
-//     const GUARD_CLOSE: u32 = 1u32 << 0;
-//     const GUARD_DUP: u32 = 1u32 << 1;
-//     const GUARD_SOCKET_IPC: u32 = 1u32 << 2;
-//     const GUARD_FILEPORT: u32 = 1u32 << 3;
-//     const O_CREAT: i32 = 0x0200;
-//     const O_CLOEXEC: i32 = 0x1000000;
-//     const O_RDWR: i32 = 0x0002;
+    const GUARD_CLOSE: u32 = 1u32 << 0;
+    const GUARD_DUP: u32 = 1u32 << 1;
+    const GUARD_SOCKET_IPC: u32 = 1u32 << 2;
+    const GUARD_FILEPORT: u32 = 1u32 << 3;
+    const O_CREAT: i32 = 0x0200;
+    const O_CLOEXEC: i32 = 0x1000000;
+    const O_RDWR: i32 = 0x0002;
 
-//     type GuardedOpenNpT = unsafe extern "C" fn(
-//         *const i8,
-//         *const u64,
-//         u32,
-//         i32,
-//         u32,
-//     ) -> i32;
+    type GuardedOpenNpT = unsafe extern "C" fn(
+        *const i8,
+        *const u64,
+        u32,
+        i32,
+        u32,
+    ) -> i32;
 
-//     let kernellib = libc::dlopen(
-//         b"/usr/lib/system/libsystem_kernel.dylib\0".as_ptr() as *const i8,
-//         libc::RTLD_GLOBAL,
-//     );
+    let kernellib = libc::dlopen(
+        b"/usr/lib/system/libsystem_kernel.dylib\0".as_ptr() as *const i8,
+        libc::RTLD_GLOBAL,
+    );
 
-//     if !kernellib.is_null() {
-//         let sym = libc::dlsym(kernellib, b"guarded_open_np\0".as_ptr() as *const i8);
+    if !kernellib.is_null() {
+        let sym = libc::dlsym(kernellib, b"guarded_open_np\0".as_ptr() as *const i8);
 
-//         if !sym.is_null() {
-//             let guarded_open_np: GuardedOpenNpT = std::mem::transmute(sym);
-//             let guard: u64 = 0x123456789ABCDEF;
+        if !sym.is_null() {
+            let guarded_open_np: GuardedOpenNpT = std::mem::transmute(sym);
+            let guard: u64 = 0x123456789ABCDEF;
 
-//             let path = CString::new("/tmp/try.txt").unwrap();
-//             let fd = guarded_open_np(
-//                 path.as_ptr(),
-//                 &guard,
-//                 GUARD_CLOSE | GUARD_DUP | GUARD_SOCKET_IPC | GUARD_FILEPORT,
-//                 O_CREAT | O_CLOEXEC | O_RDWR,
-//                 0o666,
-//             );
+            let path = CString::new("/tmp/try.txt").unwrap();
+            let fd = guarded_open_np(
+                path.as_ptr(),
+                &guard,
+                GUARD_CLOSE | GUARD_DUP | GUARD_SOCKET_IPC | GUARD_FILEPORT,
+                O_CREAT | O_CLOEXEC | O_RDWR,
+                0o666,
+            );
 
-//             if fd != -1 {
-//                 libc::close(fd);
-//             }
-//         }
-//     }
-// }
+            if fd != -1 {
+                libc::close(fd);
+            }
+        }
+    }
+}
 
 
 
